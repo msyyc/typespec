@@ -171,7 +171,7 @@ jobs:
                   \"title\": $(echo "$title" | jq -Rs .),
                   \"body\": $(echo "$body" | jq -Rs .),
                   \"labels\": [\"emitter:client:python\"],
-                  \"assignees\": [\"copilot-swe-agent[bot]\"],
+                  # \"assignees\": [\"copilot-swe-agent[bot]\"],
                   \"agent_assignment\": {
                     \"target_repo\": \"${ISSUE_REPO}\",
                     \"base_branch\": \"main\"
