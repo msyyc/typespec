@@ -23,8 +23,7 @@ jobs:
 
       - name: Check for new spec changes and create issues
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_TOKEN_COPILOT: ${{ secrets.ISSUE_CREATE_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.ISSUE_CREATE_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -171,9 +170,6 @@ jobs:
 
             # Step 5: Fetch existing issues once (across all states) to avoid duplicate creation
             # Use PAT for ISSUE_REPO operations (github.token is scoped to workflow repo only)
-            local saved_token="$GH_TOKEN"
-            export GH_TOKEN="$GH_TOKEN_COPILOT"
-
             local existing_issues
             existing_issues=$(gh issue list --repo "$ISSUE_REPO" --state all --search "in:title [python] add test case" --json number,title,assignees --limit 200 2>/dev/null || echo "[]")
 
@@ -216,8 +212,6 @@ jobs:
               issue_num=$(echo "$issue_url" | grep -oE '[0-9]+$')
               assign_copilot "$issue_num" || true
             done <<< "$pr_numbers"
-
-            export GH_TOKEN="$saved_token"
           }
 
           # Check both packages
