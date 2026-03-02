@@ -71,14 +71,10 @@ jobs:
 
             # Step 1: Extract version A from package.json devDependencies (main branch)
             local version_a
-            if [ "$pkg_name" = "@azure-tools/azure-http-specs" ]; then
-              version_a="0.1.0-alpha.38-dev.1"
-            else
-              version_a=$(echo "$PACKAGE_JSON_CONTENT" | jq -r ".devDependencies[\"$pkg_name\"]")
-              if [ -z "$version_a" ] || [ "$version_a" = "null" ]; then
-                echo "WARNING: Could not find $pkg_name in devDependencies, skipping"
-                return
-              fi
+            version_a=$(echo "$PACKAGE_JSON_CONTENT" | jq -r ".devDependencies[\"$pkg_name\"]")
+            if [ -z "$version_a" ] || [ "$version_a" = "null" ]; then
+              echo "WARNING: Could not find $pkg_name in devDependencies, skipping"
+              return
             fi
             echo "Version A (from main branch package.json): $version_a"
 
