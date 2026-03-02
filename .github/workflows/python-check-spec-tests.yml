@@ -221,6 +221,6 @@ jobs:
 
           # Check both packages
           check_package "@typespec/http-specs" "microsoft/typespec" "packages/http-specs/specs"
-          # check_package "@azure-tools/azure-http-specs" "Azure/typespec-azure" "packages/azure-http-specs/specs"
+          check_package "@azure-tools/azure-http-specs" "Azure/typespec-azure" "packages/azure-http-specs/specs"
 
           echo "Done!"
