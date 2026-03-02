@@ -142,10 +142,6 @@ jobs:
             pr_count=$(echo "$pr_numbers" | wc -l | tr -d ' ')
             echo "Found $pr_count PRs affecting specs in date range"
 
-            # Step 5: Fetch existing issues once (across all states) to avoid duplicate creation
-            local existing_issues
-            existing_issues=$(gh issue list --repo "$ISSUE_REPO" --state all --search "in:title [python] add test case" --json title --limit 200 2>/dev/null || echo "[]")
-
             while IFS= read -r pr_number; do
               [ -z "$pr_number" ] && continue
               local pr_url="https://github.com/${repo}/pull/${pr_number}"
@@ -157,7 +153,7 @@ jobs:
 
               # Check if an issue with the same title already exists (open or closed)
               local has_match
-              has_match=$(echo "$existing_issues" | jq --arg t "$title" '[.[] | select(.title == $t)] | length')
+              has_match=$(gh issue list --repo "$ISSUE_REPO" --state all --search "in:title ${pr_url}" --json title --jq --arg t "$title" '[.[] | select(.title == $t)] | length' 2>/dev/null || echo "0")
 
               if [ "$has_match" -gt 0 ]; then
                 echo "Issue already exists for PR $pr_url, skipping"
