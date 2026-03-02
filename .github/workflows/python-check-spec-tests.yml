@@ -24,6 +24,7 @@ jobs:
       - name: Check for new spec changes and create issues
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_COPILOT: ${{ secrets.ISSUE_CREATE_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -38,47 +39,59 @@ jobs:
             exit 1
           fi
 
-          # Assign copilot to an issue by number
+          # Assign copilot to an existing issue using REST API + PAT
           assign_copilot() {
             local issue_num="$1"
-            local actors_result issue_node_id copilot_bot_id
-            if ! actors_result=$(gh api graphql \
-              -H "GraphQL-Features: issues_copilot_assignment_api_support" \
-              -f query='query($owner:String!,$repo:String!,$num:Int!){
-                repository(owner:$owner,name:$repo){
-                  issue(number:$num){
-                    id
-                    suggestedActors(first:20){
-                      nodes{ ... on Bot { login id } }
-                    }
-                  }
-                }
-              }' -f owner="${ISSUE_REPO%%/*}" -f repo="${ISSUE_REPO##*/}" -F num="$issue_num" 2>&1); then
-              echo "WARNING: Could not query suggestedActors for issue #$issue_num: $actors_result"
-              return 1
-            fi
-
-            issue_node_id=$(echo "$actors_result" | jq -r '.data.repository.issue.id')
-            copilot_bot_id=$(echo "$actors_result" | jq -r '.data.repository.issue.suggestedActors.nodes[] | select(.login=="copilot-swe-agent") | .id')
-
-            if [ -z "$copilot_bot_id" ] || [ "$copilot_bot_id" = "null" ]; then
-              echo "WARNING: copilot-swe-agent not found in suggestedActors for issue #$issue_num"
-              return 1
-            fi
+            local saved_token="$GH_TOKEN"
+            export GH_TOKEN="$GH_TOKEN_COPILOT"
 
             local assign_result
-            if assign_result=$(gh api graphql \
-              -H "GraphQL-Features: issues_copilot_assignment_api_support" \
-              -f query='mutation($issueId:ID!,$botId:ID!){
-                addAssigneesToAssignable(input:{assignableId:$issueId,assigneeIds:[$botId]}){
-                  assignable{ ... on Issue { number } }
+            if assign_result=$(gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/${ISSUE_REPO}/issues/${issue_num}" \
+              --input - <<< "{
+                \"assignees\": [\"copilot-swe-agent[bot]\"],
+                \"agent_assignment\": {
+                  \"target_repo\": \"${ISSUE_REPO}\",
+                  \"base_branch\": \"main\"
                 }
-              }' -f issueId="$issue_node_id" -f botId="$copilot_bot_id" 2>&1); then
+              }" --jq '.assignees[].login' 2>&1); then
               echo "Assigned copilot to issue #$issue_num"
             else
               echo "WARNING: Could not assign copilot to issue #$issue_num: $assign_result"
-              return 1
             fi
+
+            export GH_TOKEN="$saved_token"
+          }
+
+          # Create issue with copilot assigned using REST API + PAT
+          create_issue_with_copilot() {
+            local title="$1"
+            local body="$2"
+            local saved_token="$GH_TOKEN"
+            export GH_TOKEN="$GH_TOKEN_COPILOT"
+
+            local issue_url
+            issue_url=$(gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/${ISSUE_REPO}/issues" \
+              --input - <<< "{
+                \"title\": $(echo "$title" | jq -Rs .),
+                \"body\": $(echo "$body" | jq -Rs .),
+                \"labels\": [\"emitter:client:python\"],
+                \"assignees\": [\"copilot-swe-agent[bot]\"],
+                \"agent_assignment\": {
+                  \"target_repo\": \"${ISSUE_REPO}\",
+                  \"base_branch\": \"main\"
+                }
+              }" --jq '.html_url' 2>&1)
+
+            export GH_TOKEN="$saved_token"
+            echo "$issue_url"
           }
 
           check_package() {
@@ -219,19 +232,11 @@ jobs:
                 continue
               fi
 
-              # Create the issue
+              # Create the issue with copilot assigned atomically via REST API
               local issue_url
-              issue_url=$(gh issue create --repo "$ISSUE_REPO" \
-                --title "$title" \
-                --body "$body" \
-                --label "emitter:client:python")
+              issue_url=$(create_issue_with_copilot "$title" "$body")
 
               echo "Created issue for PR $pr_url: $issue_url"
-
-              # Assign copilot to the new issue
-              local issue_num
-              issue_num=$(echo "$issue_url" | grep -oE '[0-9]+$')
-              assign_copilot "$issue_num" || true
             done <<< "$pr_numbers"
           }
 
