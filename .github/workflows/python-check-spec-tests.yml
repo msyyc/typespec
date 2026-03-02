@@ -168,13 +168,19 @@ jobs:
               fi
 
               # Create the issue
-              gh issue create --repo "$ISSUE_REPO" \
+              local issue_url
+              issue_url=$(gh issue create --repo "$ISSUE_REPO" \
                 --title "$title" \
                 --body "$body" \
-                --label "emitter:client:python" \
-                --assignee "copilot"
+                --label "emitter:client:python")
 
-              echo "Created issue for PR $pr_url"
+              echo "Created issue for PR $pr_url: $issue_url"
+
+              # Assign copilot (GitHub App) via API - --assignee flag doesn't work for app accounts
+              local issue_num
+              issue_num=$(echo "$issue_url" | grep -oE '[0-9]+$')
+              gh api "repos/${ISSUE_REPO}/issues/${issue_num}/assignees" \
+                --method POST -f "assignees[]=copilot" 2>/dev/null || echo "WARNING: Could not assign copilot to issue $issue_url"
             done <<< "$pr_numbers"
           }
 
