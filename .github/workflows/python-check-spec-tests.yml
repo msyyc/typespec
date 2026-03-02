@@ -110,7 +110,10 @@ jobs:
             echo "Searching for PRs merged between $search_date_a and $search_date_b in $repo affecting $specs_path"
 
             local merged_prs
-            merged_prs=$(gh search prs --repo "${repo}" --merged-at "${search_date_a}..${search_date_b}" --json number --jq '.[].number' 2>/dev/null || true)
+            if ! merged_prs=$(gh pr list --repo "${repo}" --state merged --search "merged:${search_date_a}..${search_date_b}" --limit 200 --json number --jq '.[].number'); then
+              echo "WARNING: Failed to search for merged PRs in ${repo}, skipping"
+              return
+            fi
 
             if [ -z "$merged_prs" ]; then
               echo "No PRs merged in date range, skipping"
