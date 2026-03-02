@@ -24,7 +24,6 @@ jobs:
       - name: Check for new spec changes and create issues
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_TOKEN_COPILOT: ${{ secrets.ISSUE_CREATE_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -179,14 +178,8 @@ jobs:
               echo "Created issue for PR $pr_url: $issue_url"
 
               # Assign copilot via GraphQL API (REST --assignee doesn't work for bot accounts)
-              # Use ISSUE_CREATE_GITHUB_TOKEN if available (may need extra scopes for copilot assignment)
               local issue_num
               issue_num=$(echo "$issue_url" | grep -oE '[0-9]+$')
-
-              local saved_token="$GH_TOKEN"
-              if [ -n "${GH_TOKEN_COPILOT:-}" ]; then
-                export GH_TOKEN="$GH_TOKEN_COPILOT"
-              fi
 
               # Get issue node ID and copilot bot ID from suggestedActors
               local issue_node_id copilot_bot_id
@@ -225,8 +218,6 @@ jobs:
                   echo "WARNING: copilot-swe-agent not found in suggestedActors for issue #$issue_num"
                 fi
               fi
-
-              export GH_TOKEN="$saved_token"
             done <<< "$pr_numbers"
           }
 
