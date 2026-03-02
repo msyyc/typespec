@@ -29,7 +29,7 @@ jobs:
 
           PACKAGE_JSON_URL="https://raw.githubusercontent.com/microsoft/typespec/main/packages/http-client-python/package.json"
           SKILL_URL="https://github.com/microsoft/typespec/blob/main/.github/skills/python-sdk-spector-mock-api-tests/SKILL.md"
-          ISSUE_REPO="msyyc/typespec"
+          ISSUE_REPO="microsoft/typespec"
 
           # Fetch package.json from main branch once
           PACKAGE_JSON_CONTENT=$(curl -fsSL "$PACKAGE_JSON_URL")
@@ -237,6 +237,6 @@ jobs:
 
           # Check both packages
           check_package "@typespec/http-specs" "microsoft/typespec" "packages/http-specs/specs"
-          check_package "@azure-tools/azure-http-specs" "Azure/typespec-azure" "packages/azure-http-specs/specs"
+          # check_package "@azure-tools/azure-http-specs" "Azure/typespec-azure" "packages/azure-http-specs/specs"
 
           echo "Done!"
