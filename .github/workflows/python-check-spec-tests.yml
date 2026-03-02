@@ -101,18 +101,37 @@ jobs:
               return
             fi
 
-            # Step 4: Use GitHub commits API (supports path filtering, unlike gh search prs)
-            echo "Searching for commits between $date_a and $date_b in $repo affecting $specs_path"
+            # Step 4: Find PRs merged in the date range that touch the specs path.
+            # Note: The Commits API since/until filters by author date, which misses PRs
+            # authored before the window but merged within it. Instead, search for merged PRs
+            # by merge date and then check which ones touch the specs path.
+            local search_date_a="${date_a:0:10}"
+            local search_date_b="${date_b:0:10}"
+            echo "Searching for PRs merged between $search_date_a and $search_date_b in $repo affecting $specs_path"
 
-            local pr_numbers
-            pr_numbers=$(gh api "repos/${repo}/commits" \
-              --paginate \
-              -f path="${specs_path}" \
-              -f since="${date_a}" \
-              -f until="${date_b}" \
-              --jq '.[].commit.message' 2>/dev/null \
-              | grep -oP '\(#\K[0-9]+(?=\))' \
-              | sort -un || true)
+            local merged_prs
+            merged_prs=$(gh search prs --repo "${repo}" --merged-at "${search_date_a}..${search_date_b}" --json number --jq '.[].number' 2>/dev/null || true)
+
+            if [ -z "$merged_prs" ]; then
+              echo "No PRs merged in date range, skipping"
+              return
+            fi
+
+            local merged_count
+            merged_count=$(echo "$merged_prs" | wc -l | tr -d ' ')
+            echo "Found $merged_count PRs merged in date range, checking which touch specs..."
+
+            local pr_numbers=""
+            while IFS= read -r pr; do
+              [ -z "$pr" ] && continue
+              local touches_specs
+              touches_specs=$(gh api "repos/${repo}/pulls/${pr}/files" --paginate --jq '.[].filename' 2>/dev/null | grep "^${specs_path}" || true)
+              if [ -n "$touches_specs" ]; then
+                echo "PR #$pr touches specs path"
+                pr_numbers="${pr_numbers}${pr}"$'\n'
+              fi
+            done <<< "$merged_prs"
+            pr_numbers=$(echo "$pr_numbers" | sed '/^$/d' | sort -un)
 
             if [ -z "$pr_numbers" ]; then
               echo "No PRs found affecting specs path in date range, skipping"
