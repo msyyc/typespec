@@ -179,8 +179,13 @@ jobs:
               # Assign copilot (GitHub App) via API - --assignee flag doesn't work for app accounts
               local issue_num
               issue_num=$(echo "$issue_url" | grep -oE '[0-9]+$')
-              gh api "repos/${ISSUE_REPO}/issues/${issue_num}/assignees" \
-                --method POST -f "assignees[]=copilot" 2>/dev/null || echo "WARNING: Could not assign copilot to issue $issue_url"
+              local assign_err
+              if assign_err=$(gh api "repos/${ISSUE_REPO}/issues/${issue_num}/assignees" \
+                --method POST -f "assignees[]=copilot" --silent 2>&1); then
+                echo "Assigned copilot to issue #$issue_num"
+              else
+                echo "WARNING: Could not assign copilot to issue #$issue_num: $assign_err"
+              fi
             done <<< "$pr_numbers"
           }
 
