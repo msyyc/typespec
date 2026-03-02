@@ -23,14 +23,10 @@ jobs:
 
       - name: Check for new spec changes and create issues
         env:
-          GH_TOKEN_READ: ${{ github.token }}
-          GH_TOKEN_WRITE: ${{ secrets.ISSUE_CREATE_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_COPILOT: ${{ secrets.ISSUE_CREATE_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          # Use GITHUB_TOKEN for reading public repos (works cross-org),
-          # ISSUE_CREATE_GITHUB_TOKEN only for issue creation/assignment.
-          export GH_TOKEN="$GH_TOKEN_READ"
 
           PACKAGE_JSON_URL="https://raw.githubusercontent.com/microsoft/typespec/main/packages/http-client-python/package.json"
           SKILL_URL="https://github.com/microsoft/typespec/blob/main/.github/skills/python-sdk-spector-mock-api-tests/SKILL.md"
@@ -151,10 +147,7 @@ jobs:
             pr_count=$(echo "$pr_numbers" | wc -l | tr -d ' ')
             echo "Found $pr_count PRs affecting specs in date range"
 
-            # Step 5: Switch to write token for issue operations on ISSUE_REPO
-            export GH_TOKEN="$GH_TOKEN_WRITE"
-
-            # Fetch existing issues once (across all states) to avoid duplicate creation
+            # Step 5: Fetch existing issues once (across all states) to avoid duplicate creation
             local existing_issues
             existing_issues=$(gh issue list --repo "$ISSUE_REPO" --state all --search "in:title [python] add test case" --json title --limit 200 2>/dev/null || echo "[]")
 
@@ -186,8 +179,14 @@ jobs:
               echo "Created issue for PR $pr_url: $issue_url"
 
               # Assign copilot via GraphQL API (REST --assignee doesn't work for bot accounts)
+              # Use ISSUE_CREATE_GITHUB_TOKEN if available (may need extra scopes for copilot assignment)
               local issue_num
               issue_num=$(echo "$issue_url" | grep -oE '[0-9]+$')
+
+              local saved_token="$GH_TOKEN"
+              if [ -n "${GH_TOKEN_COPILOT:-}" ]; then
+                export GH_TOKEN="$GH_TOKEN_COPILOT"
+              fi
 
               # Get issue node ID and copilot bot ID from suggestedActors
               local issue_node_id copilot_bot_id
@@ -226,10 +225,9 @@ jobs:
                   echo "WARNING: copilot-swe-agent not found in suggestedActors for issue #$issue_num"
                 fi
               fi
-            done <<< "$pr_numbers"
 
-            # Switch back to read token for next package check
-            export GH_TOKEN="$GH_TOKEN_READ"
+              export GH_TOKEN="$saved_token"
+            done <<< "$pr_numbers"
           }
 
           # Check both packages
