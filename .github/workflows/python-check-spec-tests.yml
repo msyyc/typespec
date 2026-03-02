@@ -38,6 +38,49 @@ jobs:
             exit 1
           fi
 
+          # Assign copilot to an issue by number
+          assign_copilot() {
+            local issue_num="$1"
+            local actors_result issue_node_id copilot_bot_id
+            if ! actors_result=$(gh api graphql \
+              -H "GraphQL-Features: issues_copilot_assignment_api_support" \
+              -f query='query($owner:String!,$repo:String!,$num:Int!){
+                repository(owner:$owner,name:$repo){
+                  issue(number:$num){
+                    id
+                    suggestedActors(first:20){
+                      nodes{ ... on Bot { login id } }
+                    }
+                  }
+                }
+              }' -f owner="${ISSUE_REPO%%/*}" -f repo="${ISSUE_REPO##*/}" -F num="$issue_num" 2>&1); then
+              echo "WARNING: Could not query suggestedActors for issue #$issue_num: $actors_result"
+              return 1
+            fi
+
+            issue_node_id=$(echo "$actors_result" | jq -r '.data.repository.issue.id')
+            copilot_bot_id=$(echo "$actors_result" | jq -r '.data.repository.issue.suggestedActors.nodes[] | select(.login=="copilot-swe-agent") | .id')
+
+            if [ -z "$copilot_bot_id" ] || [ "$copilot_bot_id" = "null" ]; then
+              echo "WARNING: copilot-swe-agent not found in suggestedActors for issue #$issue_num"
+              return 1
+            fi
+
+            local assign_result
+            if assign_result=$(gh api graphql \
+              -H "GraphQL-Features: issues_copilot_assignment_api_support" \
+              -f query='mutation($issueId:ID!,$botId:ID!){
+                addAssigneesToAssignable(input:{assignableId:$issueId,assigneeIds:[$botId]}){
+                  assignable{ ... on Issue { number } }
+                }
+              }' -f issueId="$issue_node_id" -f botId="$copilot_bot_id" 2>&1); then
+              echo "Assigned copilot to issue #$issue_num"
+            else
+              echo "WARNING: Could not assign copilot to issue #$issue_num: $assign_result"
+              return 1
+            fi
+          }
+
           check_package() {
             local pkg_name="$1"
             local repo="$2"
@@ -177,52 +220,33 @@ jobs:
 
               echo "Created issue for PR $pr_url: $issue_url"
 
-              # Assign copilot via GraphQL API (REST --assignee doesn't work for bot accounts)
+              # Assign copilot to the new issue
               local issue_num
               issue_num=$(echo "$issue_url" | grep -oE '[0-9]+$')
-
-              # Get issue node ID and copilot bot ID from suggestedActors
-              local issue_node_id copilot_bot_id
-              local actors_result
-              if ! actors_result=$(gh api graphql \
-                -H "GraphQL-Features: issues_copilot_assignment_api_support" \
-                -f query='query($owner:String!,$repo:String!,$num:Int!){
-                  repository(owner:$owner,name:$repo){
-                    issue(number:$num){
-                      id
-                      suggestedActors(first:20){
-                        nodes{ ... on Bot { login id } }
-                      }
-                    }
-                  }
-                }' -f owner="${ISSUE_REPO%%/*}" -f repo="${ISSUE_REPO##*/}" -F num="$issue_num" 2>&1); then
-                echo "WARNING: Could not query suggestedActors for issue #$issue_num: $actors_result"
-              else
-                issue_node_id=$(echo "$actors_result" | jq -r '.data.repository.issue.id')
-                copilot_bot_id=$(echo "$actors_result" | jq -r '.data.repository.issue.suggestedActors.nodes[] | select(.login=="copilot-swe-agent") | .id')
-
-                if [ -n "$copilot_bot_id" ] && [ "$copilot_bot_id" != "null" ]; then
-                  local assign_result
-                  if assign_result=$(gh api graphql \
-                    -H "GraphQL-Features: issues_copilot_assignment_api_support" \
-                    -f query='mutation($issueId:ID!,$botId:ID!){
-                      addAssigneesToAssignable(input:{assignableId:$issueId,assigneeIds:[$botId]}){
-                        assignable{ ... on Issue { number } }
-                      }
-                    }' -f issueId="$issue_node_id" -f botId="$copilot_bot_id" 2>&1); then
-                    echo "Assigned copilot to issue #$issue_num"
-                  else
-                    echo "WARNING: Could not assign copilot to issue #$issue_num: $assign_result"
-                  fi
-                else
-                  echo "WARNING: copilot-swe-agent not found in suggestedActors for issue #$issue_num"
-                fi
-              fi
+              assign_copilot "$issue_num" || true
             done <<< "$pr_numbers"
           }
 
           # Check both packages
           check_package "@typespec/http-specs" "microsoft/typespec" "packages/http-specs/specs"
           check_package "@azure-tools/azure-http-specs" "Azure/typespec-azure" "packages/azure-http-specs/specs"
+
+          # Retry copilot assignment for any open issues that are unassigned
+          echo "=============================="
+          echo "Checking for unassigned open issues..."
+          echo "=============================="
+          unassigned=$(gh issue list --repo "$ISSUE_REPO" --state open \
+            --search "in:title [python] add test case" \
+            --json number,assignees --jq '.[] | select(.assignees | length == 0) | .number' 2>/dev/null || true)
+
+          if [ -n "$unassigned" ]; then
+            while IFS= read -r num; do
+              [ -z "$num" ] && continue
+              echo "Issue #$num is unassigned, attempting to assign copilot..."
+              assign_copilot "$num" || true
+            done <<< "$unassigned"
+          else
+            echo "All open issues are assigned"
+          fi
 
           echo "Done!"
